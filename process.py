@@ -6,14 +6,14 @@ from tqdm import tqdm
 from loss import CE, Align, Reconstruct,CM
 from torch.optim.lr_scheduler import LambdaLR
 from classification import fit_lr, get_rep_with_label,get_freqrep_with_label
-from model.BrainVisModels import AlignNet,TimeFreqEncoder,FreqEncoder
+from model.BrainVisModels import AlignNet,TimeFreqEncoder,FreqEncoder, SequentialModel
 import argparse
 
 parser = argparse.ArgumentParser(description="Template")
 
 parser.add_argument('-mt','--model_type', default='FreqEncoder', help='')
 parser.add_argument('-mp','--model_params', default='', nargs='*', help='list of key=value pairs of model options')
-parser.add_argument('--pretrained_net', default='lstm__subject0_epoch_900.pth', help="path to pre-trained net")
+parser.add_argument('--pretrained_net', default='lstm__subject0_epoch_100.pth', help="path to pre-trained net")
 
 # Parse arguments
 opt = parser.parse_args()
@@ -37,7 +37,8 @@ class Trainer():
         self.verbose = verbose
         self.device = args.device
         self.print_process(self.device)
-        self.model = time_model.to(torch.device(self.device))
+        # self.model = time_model.to(torch.device(self.device))
+        self.model = time_model
 
         self.train_loader = train_loader
         #self.train_linear_loader = train_linear_loader
@@ -115,7 +116,7 @@ class Trainer():
     def finetune(self):
         print('finetune')
         self.model.linear_proba = True
-        #self.args.load_pretrained_model=False
+        self.args.load_pretrained_model=False
         if self.args.load_pretrained_model:
             print('load pretrained model')
             state_dict = torch.load(self.save_path + '/pretrain_model_epoch300.pkl', map_location=self.device)
@@ -301,7 +302,7 @@ class Trainer():
             if (epoch + 1) % 3 == 0:
                 self.model.eval()
                 train_rep, train_label = get_rep_with_label(self.model, self.train_linear_loader)
-                test_rep, test_label = get_rep_with_label(self.model, self.test_loader)
+                test_rep, tefinetunest_label = get_rep_with_label(self.model, self.test_loader)
                 clf = fit_lr(train_rep, train_label)
                 acc = clf.score(test_rep, test_label)
                 print(acc)
@@ -311,29 +312,40 @@ class Trainer():
 
     def finetune_CLIP(self):
         eval_cosine = 0.0
-        freq_model_options = {key: int(value) if value.isdigit() else (float(value) if value[0].isdigit() else value) for
-                         (key, value) in [x.split("=") for x in opt.model_params]}
-        freq_model = FreqEncoder(**freq_model_options)
-
+        # freq_model_options = {key: int(value) if value.isdigit() else (float(value) if value[0].isdigit() else value) for
+        #                  (key, value) in [x.split("=") for x in opt.model_params]}
+        # freq_model = FreqEncoder(**freq_model_options)
+        freq_model = SequentialModel()
         self.timefreq_model=TimeFreqEncoder(self.model,freq_model,self.args)
-        self.timefreq_model = self.timefreq_model.to(torch.device(self.device))
+        # self.timefreq_model = self.timefreq_model.to(torch.device(self.device))
+        # self.timefreq_model.load_state_dict(torch.load('cnn+lstm_6_6_1_epoch_90.pth', weights_only=True))
 
-        freqtime_state_dict = torch.load(self.save_path + '/timefreqmodel.pkl', map_location=self.device)
+        # REPLACING WITH OUR ENCODER ----------------------------------
 
-        self.timefreq_model.load_state_dict(freqtime_state_dict)
 
-        self.timefreq_model.to(torch.device("cpu"))
 
-        freq_size=freq_model.output_size
-        time_size=self.model.d
+        # freqtime_state_dict = torch.load(self.save_path + '/timefreqmodel_epoch50.pkl', map_location=self.device)
+
+        # self.timefreq_model.load_state_dict(freqtime_state_dict)
+
+        # self.timefreq_model.to(torch.device("cpu"))
+
+        # MANUALLY REPLACED-----------------------------------
+        freq_size=128
+        # REPLACED TIMEMODEL.D WITH D FROM ARGS---------------------------------
+        time_size=1024
         clip_size=int(77*768)
 
         self.alignmodel=AlignNet(time_size,freq_size,clip_size,self.timefreq_model)
+        align_state_dict = torch.load(self.save_path + '/clipfinetune_model_epoch20.pkl', map_location="cpu")
+
+        self.alignmodel.load_state_dict(align_state_dict)
         self.alignmodel=self.alignmodel.to(torch.device(self.device))
         print('CLIP_finetune')
         self.optimizer = torch.optim.AdamW(self.alignmodel.parameters(), lr=self.args.lr)
         CLIPloss = CM()
         align=Align()
+        print('Models defined. Pre-loop')
 
         for epoch in range(500):
             print('Epoch:' + str(epoch + 1))
@@ -419,32 +431,37 @@ class Trainer():
                 torch.save(self.alignmodel.state_dict(), self.save_path + '/clipfinetune_model.pkl')
 
     def finetune_timefreq(self):
-        time_state_dict = torch.load(self.save_path + '/finetune_model_epoch80.pkl',
+        # time_state_dict = torch.load(self.save_path + '/finetune_model_epoch80.pkl',
+        #                         map_location=self.device)
+        # print("freq_train")
+
+        # self.model.load_state_dict(time_state_dict)
+
+        # self.model.eval()
+        # self.model.to(torch.device("cuda"))
+        # train_rep, train_label = get_rep_with_label(self.model, self.train_linear_loader)
+        # test_rep, test_label = get_rep_with_label(self.model, self.test_loader)
+        # clf = fit_lr(train_rep, train_label)
+        # acc = clf.score(test_rep, test_label)
+        # pred_label = np.argmax(clf.predict_proba(test_rep), axis=1)
+        # f1 = f1_score(test_label, pred_label, average='macro')
+        # print(acc, f1)
+        # self.model.train()
+        # self.model.to(torch.device("cpu"))
+
+        # freq_model_options = {key: int(value) if value.isdigit() else (float(value) if value[0].isdigit() else value) for
+        #                  (key, value) in [x.split("=") for x in opt.model_params]}
+        # freq_model = FreqEncoder(**freq_model_options)
+        freq_model = SequentialModel()
+
+        # if opt.pretrained_net != '':
+        #     freq_model = torch.load(opt.pretrained_net)
+
+        self.timefreq_model = TimeFreqEncoder(self.model,freq_model,self.args)
+        timefreq_state_dict = torch.load(self.save_path + '/timefreqmodel_epoch50.pkl',
                                 map_location=self.device)
-        print("freq_train")
 
-        self.model.load_state_dict(time_state_dict)
-
-        self.model.eval()
-        self.model.to(torch.device("cuda"))
-        train_rep, train_label = get_rep_with_label(self.model, self.train_linear_loader)
-        test_rep, test_label = get_rep_with_label(self.model, self.test_loader)
-        clf = fit_lr(train_rep, train_label)
-        acc = clf.score(test_rep, test_label)
-        pred_label = np.argmax(clf.predict_proba(test_rep), axis=1)
-        f1 = f1_score(test_label, pred_label, average='macro')
-        print(acc, f1)
-        self.model.train()
-        self.model.to(torch.device("cpu"))
-
-        freq_model_options = {key: int(value) if value.isdigit() else (float(value) if value[0].isdigit() else value) for
-                         (key, value) in [x.split("=") for x in opt.model_params]}
-        freq_model = FreqEncoder(**freq_model_options)
-
-        if opt.pretrained_net != '':
-            freq_model = torch.load(opt.pretrained_net)
-
-        self.timefreq_model=TimeFreqEncoder(self.model,freq_model,self.args)
+        self.timefreq_model.load_state_dict(timefreq_state_dict)
         self.timefreq_model = self.timefreq_model.to(torch.device(self.device))
 
         self.optimizer = torch.optim.AdamW(self.timefreq_model.parameters(), lr=self.args.lr)
@@ -506,7 +523,7 @@ class Trainer():
             te_top3acc = acc3 / (idxte + 1)
             te_top5acc = acc5 / (idxte + 1)
 
-            print('timefreq_finetune epoch{0}, trloss{1}, teloss{2},teacc{3},te_top3acc{4},te_top3acc{5}'.format(epoch + 1, trloss, metrics['test_loss'],metrics['acc'],te_top3acc,te_top5acc))
+            print('timefreq_finetune epoch{0}, trloss{1}, teloss{2},teacc{3},te_top3acc{4},te_top5acc{5}'.format(epoch + 1, trloss, metrics['test_loss'],metrics['acc'],te_top3acc,te_top5acc))
 
             if (epoch + 1) % 5 == 0:
                 torch.save(self.timefreq_model.state_dict(),

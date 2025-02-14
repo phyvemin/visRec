@@ -1,11 +1,11 @@
 # Define options
 import argparse
-from model.BrainVisModels import FreqEncoder
+from model.BrainVisModels import FreqEncoder, SequentialModel
 parser = argparse.ArgumentParser(description="Template")
 
-parser.add_argument('-ed', '--eeg-dataset', default=r"data\EEG\eeg_5_95_std.pth", help="EEG dataset path") #5-95Hz
+parser.add_argument('-ed', '--eeg-dataset', default=r"data/EEG/eeg_5_95_std.pth", help="EEG dataset path") #5-95Hz
 #Splits
-parser.add_argument('-sp', '--splits-path', default=r"data\EEG\block_splits_by_image_all.pth", help="splits path") #All subjects
+parser.add_argument('-sp', '--splits-path', default=r"data/EEG/block_splits_by_image_all_new.pth", help="splits path") #All subjects
 ### BLOCK DESIGN ###
 parser.add_argument('-sn', '--split-num', default=0, type=int, help="split number") #leave this always to zero.
 #Subject selecting
@@ -19,14 +19,14 @@ parser.add_argument('-mp','--model_params', default='', nargs='*', help='list of
 parser.add_argument('--pretrained_net', default='', help="path to pre-trained net (to continue training)")
 # Training options
 parser.add_argument("-b", "--batch_size", default=128, type=int, help="batch size")
-parser.add_argument('-o', '--optim', default="Adam", help="optimizer")
+parser.add_argument('-o', '--optim', default="AdamW", help="optimizer")
 parser.add_argument('-lr', '--learning-rate', default=0.001, type=float, help="learning rate")
 parser.add_argument('-lrdb', '--learning-rate-decay-by', default=0.5, type=float, help="learning rate decay factor")
 parser.add_argument('-lrde', '--learning-rate-decay-every', default=10, type=int, help="learning rate decay period")
 parser.add_argument('-dw', '--data-workers', default=3, type=int, help="data loading workers")
-parser.add_argument('-e', '--epochs', default=1000, type=int, help="training epochs")
+parser.add_argument('-e', '--epochs', default=200, type=int, help="training epochs")
 # Save options
-parser.add_argument('-sc', '--saveCheck', default=20, type=int, help="learning rate")
+parser.add_argument('-sc', '--saveCheck', default=40, type=int, help="learning rate")
 # Backend options
 parser.add_argument('--no-cuda', default=False, help="disable CUDA", action="store_true")
 # Parse arguments
@@ -35,61 +35,50 @@ print(opt)
 
 # Imports
 import torch; torch.utils.backcompat.broadcast_warning.enabled = True
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 import torch.nn.functional as F
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 import torch.optim
 import torch.backends.cudnn as cudnn; cudnn.benchmark = True
 import numpy as np
 import importlib
 
-# Dataset class
-class EEGDataset:
-    
-    # Constructor
-    def __init__(self, eeg_signals_path):
-        # Load EEG signals
-        loaded = torch.load(eeg_signals_path)
-        if opt.subject!=0:
-            self.data = [loaded['dataset'][i] for i in range(len(loaded['dataset']) ) if loaded['dataset'][i]['subject']==opt.subject]
-        else:
-            self.data=loaded['dataset']        
-        self.labels = loaded["labels"]
-        self.images = loaded["images"]
-        
-        # Compute size
-        self.size = len(self.data)
+class image_eeg_dataset(Dataset):
+    def __init__(self, eeg_path):
+        super().__init__()
+        loaded = torch.load(eeg_path,weights_only=False)
+        self.data = loaded['dataset']
+        self.images = loaded['images']
+        self.labels = loaded['labels']
+        self.data_len = 440
 
-    # Get size
     def __len__(self):
-        return self.size
-
-    # Get item
+        return len(self.data)
+    
     def __getitem__(self, i):
-        # Process EEG
-        eeg = self.data[i]["eeg"].float().t()
-        eeg = eeg[opt.time_low:opt.time_high,:]
+        
+        eeg = self.data[i]['eeg'].float().t()
+        eeg = eeg[20:460,:]
+        eeg = np.array(eeg.transpose(0,1))
 
-        if opt.model_type == "model10":
-            eeg = eeg.t()
-            eeg = eeg.view(1,128,opt.time_high-opt.time_low)
+        eeg = torch.from_numpy(eeg).float()
+        eeg = eeg.unsqueeze(0)
 
-        # # Get label
-        label = self.data[i]["label"]
-        # Return
+        label = torch.tensor(self.data[i]["label"]).long()
 
-        return eeg, label
+        return eeg,label
 
 # Splitter class
 class Splitter:
 
-    def __init__(self, dataset, split_path, split_num=0, split_name="train"):
+    def __init__(self, dataset, split_path, subject=0, split_name="train"):
         # Set EEG dataset
         self.dataset = dataset
         # Load split
         loaded = torch.load(split_path)
-        self.split_idx = loaded["splits"][split_num][split_name]
+        self.split_idx = loaded["splits"][subject][split_name]
         # Filter data
-        self.split_idx = [i for i in self.split_idx if 450 <= self.dataset.data[i]["eeg"].size(1) <= 600]
+        # self.split_idx = [i for i in self.split_idx if 450 <= self.dataset.data[i]["eeg"].size(1) <= 600]
         # Compute size
         self.size = len(self.split_idx)
 
@@ -105,18 +94,21 @@ class Splitter:
         return eeg, label
 
 # Load dataset
-dataset = EEGDataset(opt.eeg_dataset)
+dataset = image_eeg_dataset(opt.eeg_dataset)
 # Create loaders
-loaders = {split: DataLoader(Splitter(dataset, split_path = opt.splits_path, split_num = opt.split_num, split_name = split), batch_size = opt.batch_size, drop_last = True, shuffle = True) for split in ["train", "val", "test"]}
-train_dataset=Splitter(dataset, split_path = opt.splits_path, split_num = opt.split_num, split_name = "train")
+loaders = {split: DataLoader(Splitter(dataset, split_path = opt.splits_path, subject = opt.subject, split_name = split), batch_size = opt.batch_size, drop_last = True, shuffle = True) for split in ["train", "val", "test"]}
+train_dataset=Splitter(dataset, split_path = opt.splits_path, subject = opt.subject, split_name = "train")
 print(len(train_dataset))
 
 # Load model
 
 model_options = {key: int(value) if value.isdigit() else (float(value) if value[0].isdigit() else value) for (key, value) in [x.split("=") for x in opt.model_params]}
 # Create discriminator model/optimizer
-model = FreqEncoder(**model_options)
+# model = SequentialModel(**model_options)
+model = SequentialModel()
+# model.load_state_dict(torch.load('cnn+lstm_6_6_1_epoch_90.pth', weights_only=True))
 optimizer = getattr(torch.optim, opt.optim)(model.parameters(), lr = opt.learning_rate)
+scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=opt.learning_rate_decay_by, patience=5, verbose=True)
     
 # Setup CUDA
 if not opt.no_cuda:
@@ -167,8 +159,9 @@ for epoch in range(1, opt.epochs+1):
 
             #input=input.unsqueeze(1)
             # Forward
+            # print(input.shape)
             output,xa = model(input)
-            #print(np.shape(input))
+            # print(output.shape)
             # Compute loss
             loss = F.cross_entropy(output, target)
             losses[split] += loss.item()
@@ -185,6 +178,7 @@ for epoch in range(1, opt.epochs+1):
                 optimizer.step()
     
     # Print info at the end of the epoch
+    scheduler.step(accuracies["val"] / counts["val"])
     if accuracies["val"]/counts["val"] >= best_accuracy_val:
         best_accuracy_val = accuracies["val"]/counts["val"]
         best_accuracy = accuracies["test"]/counts["test"]

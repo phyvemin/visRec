@@ -4,8 +4,8 @@ import shutil
 from pytorch_fid import fid_score
 
 # 文件夹路径
-path1 = 'picture-gene'
-path2 = "picture-gene-onlygt"
+path1 = 'picture-gene-all'
+path2 = "picture-gene-onlygt-sub6"
 temp_path1 = 'temppath'
 
 # 创建临时文件夹

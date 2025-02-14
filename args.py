@@ -10,10 +10,11 @@ parser.add_argument('--save_path', type=str, default='exp/epilepsy/test')
 parser.add_argument('--dataset', type=str, default='eeg')
 parser.add_argument('--data_path', type=str,
                     default='data/EEG/')
-#parser.add_argument('--device', type=str, default='cpu')
 parser.add_argument('--device', type=str, default='cuda')
-parser.add_argument('--train_batch_size', type=int, default=128)
-parser.add_argument('--test_batch_size', type=int, default=128)
+parser.add_argument('--device2', type=str, default='cuda')
+parser.add_argument('--device1', type=str, default='cpu')
+parser.add_argument('--train_batch_size', type=int, default=8)
+parser.add_argument('--test_batch_size', type=int, default=8)
 
 # model args
 parser.add_argument('--d_model', type=int, default=1024)

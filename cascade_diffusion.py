@@ -8,11 +8,14 @@ from dc_ldm.util import instantiate_from_config
 from torch.utils.data import Dataset, DataLoader
 from dataset import Dataset as selfdataset
 import torchvision.transforms as transforms
-from model.BrainVisModels import TimeEncoder, AlignNet,TimeFreqEncoder,FreqEncoder
+from model.BrainVisModels import TimeEncoder, AlignNet,TimeFreqEncoder,FreqEncoder, SequentialModel
 from args import args, Test_data, Train_data_all, Train_data, Train_data_all_with_image_name, Train_data_with_image_name, Test_data_with_image_name
 import argparse
 from diffusers import StableDiffusionImg2ImgPipeline
 from PIL import Image
+
+torch.cuda.empty_cache()
+torch.cuda.reset_peak_memory_stats()
 
 propmt_dict = {'n02106662': 'german shepherd dog',
 'n02124075': 'cat ',
@@ -107,7 +110,8 @@ opt = parser.parse_args()
 # Path
 datapath='data/EEG_Feature_Label/'
 img_file_type='.JPEG'
-device = "cuda"
+device1 = args.device1
+device2 = args.device2
 
 test_img_names_file=datapath+'test_image_names.pth'
 test_seq_file=datapath+'test_seqs.pth'
@@ -145,7 +149,7 @@ class Dataset(Dataset):
             return len(self.seqs)
 
     def __getitem__(self, idx):
-        input_vec=torch.tensor(self.seqs[idx]).to("cuda")
+        input_vec=torch.tensor(self.seqs[idx])
 
         img_label = self.image_names[idx].split("_")[0]
         img_path = "data/image/" + img_label + "/" + self.image_names[idx] + img_file_type
@@ -163,46 +167,45 @@ class Dataset(Dataset):
 
         return input_vec, gt_image,self.image_names[idx],prompt
 
-
-
 #Load data
 batch_size = 1
 test_dataset = Dataset(test_img_names_file,test_seq_file, test_pred_file)
 test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
-train_dataset = selfdataset(device=args.device, mode='pretrain', data=Train_data_all, wave_len=args.wave_length)
+train_dataset = selfdataset(device='cpu', mode='pretrain', data=Train_data_all, wave_len=args.wave_length)
 args.data_shape = train_dataset.shape()
 
 #Load AlignNet
 time_model=TimeEncoder(args)
-time_model=time_model.to("cuda")
-freq_model_options = {key: int(value) if value.isdigit() else (float(value) if value[0].isdigit() else value) for
-                      (key, value) in [x.split("=") for x in opt.model_params]}
+# time_model=time_model.to("cuda")
+# freq_model_options = {key: int(value) if value.isdigit() else (float(value) if value[0].isdigit() else value) for
+#                       (key, value) in [x.split("=") for x in opt.model_params]}
 
-freq_model = FreqEncoder(**freq_model_options)
-
+# freq_model = FreqEncoder(**freq_model_options)
+freq_model = SequentialModel()
 timefreq_model = TimeFreqEncoder(time_model, freq_model, args)
-timefreq_model=timefreq_model.to("cuda")
+# timefreq_model=timefreq_model.to("cuda")
 
 time_size=1024
 freq_size=128
 clip_size=int(77*768)
 
 model_eegtoclip=AlignNet(time_size,freq_size,clip_size,timefreq_model)
-eegtoclip_state_dict = torch.load('exp/epilepsy/test/exp/epilepsy/test/clipfinetune_model.pkl', map_location="cuda")#device)
+eegtoclip_state_dict = torch.load('exp/epilepsy/test/clipfinetune_model.pkl', map_location="cpu")#device)
 model_eegtoclip.load_state_dict(eegtoclip_state_dict)
-model_eegtoclip.to("cuda")
+model_eegtoclip = model_eegtoclip.to(device2)
 model_eegtoclip.eval()
 
 #Load stable diffusion
 ckp_path = os.path.join(dff_model_path)
 config_path = os.path.join(dff_yaml_path)
+print(ckp_path, config_path)
 config = OmegaConf.load(config_path)
 config.model.params.unet_config.params.use_time_cond = use_time_cond
 config.model.params.unet_config.params.global_pool = global_pool
 cond_dim = config.model.params.unet_config.params.context_dim
 model = instantiate_from_config(config.model)
-pl_sd = torch.load(ckp_path, map_location=device)['state_dict']
+pl_sd = torch.load(ckp_path, map_location="cpu", weights_only=False)['state_dict']
 m, u = model.load_state_dict(pl_sd, strict=False)
 model.cond_stage_trainable = False
 model.ddim_steps = ddim_steps
@@ -212,12 +215,13 @@ model.p_image_size = config.model.params.image_size
 model.ch_mult = config.model.params.first_stage_config.params.ddconfig.ch_mult
 model.clip_tune = clip_tune
 model.cls_tune = cls_tune
-model = model.to(device)
+model = model.to(device1)
 model.eval()
 sampler = PLMSSampler(model)
 ldm_config = config
 shape = (ldm_config.model.params.channels, ldm_config.model.params.image_size, ldm_config.model.params.image_size)
 
+'''
 #Verify classification results
 labels = torch.load(test_pred_file)
 image_names = torch.load(test_img_names_file)
@@ -233,8 +237,8 @@ for idx in range(0,len(labels)):
         print(idx)
 
 print("errclassnum:"+str(errnum))
-
-model2 = StableDiffusionImg2ImgPipeline.from_single_file("pretrained_model/v1-5-pruned-emaonly.ckpt").to(device)
+'''
+model2 = StableDiffusionImg2ImgPipeline.from_single_file("pretrained_model/v1-5-pruned-emaonly.safetensors").to(device2)
 
 
 num_samples=4
@@ -257,14 +261,14 @@ with torch.no_grad():
         images_list = []
         curr_epoch = curr_epoch + 1
         inputs = inputs.float()
-        clip_encoded = model_eegtoclip(inputs)
+        clip_encoded = model_eegtoclip(inputs.to(device2))
 
         with model.ema_scope():
             model.eval()
             for index in range(0, len(inputs)):
                 cur_gt_img = rearrange(gt_image[index], 'h w c -> c h w')
                 gt_img.append(torch.clamp((cur_gt_img + 1.0) / 2.0, min=0.0, max=1.0))
-                latent.append(clip_encoded[index].reshape(77, 768).to(device))
+                latent.append(clip_encoded[index].reshape(77, 768).to(device1))
 
             index = 0
 

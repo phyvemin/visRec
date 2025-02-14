@@ -1,0 +1,15 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+clip/
+data/
+ControlNet/
+depthpicture6/
+exp/
+inter-imgs/
+picture-gene/
+picture-gene-all/
+pretrained_model/
+freq_models/

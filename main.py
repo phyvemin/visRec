@@ -3,9 +3,9 @@ warnings.filterwarnings('ignore')
 import torch.utils.data as Data
 from args import args, Test_data, Train_data_all, Train_data, Train_data_all_with_image_name, Train_data_with_image_name, Test_data_with_image_name
 from dataset import Dataset,Dataset_with_image_name
-from model.BrainVisModels import TimeEncoder,TimeFreqEncoder,FreqEncoder
+from model.BrainVisModels import TimeEncoder,TimeFreqEncoder,FreqEncoder, SequentialModel
 from process import Trainer
-from classification import fit_lr, get_rep_with_label,get_rep_with_label_with_image_name
+from classification import fit_lr, get_rep_with_label,get_rep_with_label_with_image_name, get_rep_with_label_with_image_name_seq
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 import argparse
 import torch; torch.utils.backcompat.broadcast_warning.enabled = True
@@ -54,30 +54,57 @@ def main():
     trainer = Trainer(args, time_model, train_loader, train_linear_loader, test_loader, verbose=True)
 
     train_mode=True #True for training, False for the export of test data for image generation
-
+    only_seq = True
     if train_mode:
         trainer.pretrain()
         #trainer.cont_pretrain()
-        #trainer.finetune()
+        # trainer.finetune()
 
         ## Start from this step, to finetune on single subject, please modify the 'datautils.py'.
-        #trainer.finetune_timefreq()
-        #trainer.finetune_CLIP()
+        # trainer.finetune_timefreq()
+        # trainer.finetune_CLIP()
+
+    elif only_seq:
+        freq_model = SequentialModel()
+
+        freq_model = torch.load('/DATA/MTP_b21260/BrainVis/lstm__subject0_epoch_100.pth')
+
+        freq_model = freq_model.to("cuda")
+
+        test_label,test_image_names, test_preds,test_seqs,test_rep,testacc=get_rep_with_label_with_image_name_seq(freq_model,test_loader_with_image_name)
+
+        all_train_label,train_image_names,all_train_preds,all_train_seqs,all_train_rep,trainacc= get_rep_with_label_with_image_name_seq(freq_model, all_train_linear_loader_with_image_name) # 获取训练数据的模型编码和对应标签
+        clf = fit_lr(all_train_rep, all_train_label)
+
+        acc = clf.score(test_rep, test_label)
+        pred_label = np.argmax(clf.predict_proba(test_rep), axis=1)
+
+        if(acc>testacc):
+            result = [[x] for x in pred_label]
+            test_preds=result
+
+        f1 = f1_score(test_label, test_preds, average='macro')
+        print('acc:'+str(acc)+' f1:'+str(f1))
+
+        torch.save(test_preds,'data/EEG_Feature_Label/test_pred6.pth')
+        torch.save(test_label, 'data/EEG_Feature_Label/test_label6.pth')
+        torch.save(test_image_names, 'data/EEG_Feature_Label/test_image_names6.pth')
+        torch.save(test_seqs, 'data/EEG_Feature_Label/test_seqs6.pth')
 
     else:
         ## We suggest exporting data by single subject
-        timeE = TimeEncoder(args).to("cuda")
-        freq_model_options = {key: int(value) if value.isdigit() else (float(value) if value[0].isdigit() else value)
-                              for (key, value) in [x.split("=") for x in opt.model_params]}
-        # Create discriminator model
-        freq_model = FreqEncoder(**freq_model_options)
+        timeE = TimeEncoder(args)
+        # freq_model_options = {key: int(value) if value.isdigit() else (float(value) if value[0].isdigit() else value)
+        #                       for (key, value) in [x.split("=") for x in opt.model_params]}
+        # # Create discriminator model
+        # freq_model = FreqEncoder(**freq_model_options)
+        freq_model = SequentialModel()
 
         timefreq_model = TimeFreqEncoder(timeE, freq_model, args)
-        timefreq_model = timefreq_model.to("cuda")
-
-        freqtime_state_dict = torch.load(args.save_path + '/timefreqmodel.pkl', map_location="cuda")
+        freqtime_state_dict = torch.load(args.save_path + '/timefreqmodel_epoch50.pkl', map_location="cpu")
 
         timefreq_model.load_state_dict(freqtime_state_dict)
+        timefreq_model = timefreq_model.to("cuda")
 
         test_label,test_image_names, test_preds,test_seqs,test_rep,testacc=get_rep_with_label_with_image_name(timefreq_model,test_loader_with_image_name)
 
@@ -94,10 +121,10 @@ def main():
         f1 = f1_score(test_label, test_preds, average='macro')
         print('acc:'+str(acc)+' f1:'+str(f1))
 
-        torch.save(test_preds,'data/EEG_Feature_Label/test_pred.pth')
-        torch.save(test_label, 'data/EEG_Feature_Label/test_label.pth')
-        torch.save(test_image_names, 'data/EEG_Feature_Label/test_image_names.pth')
-        torch.save(test_seqs, 'data/EEG_Feature_Label/test_seqs.pth')
+        torch.save(test_preds,'data/EEG_Feature_Label/test_pred6.pth')
+        torch.save(test_label, 'data/EEG_Feature_Label/test_label6.pth')
+        torch.save(test_image_names, 'data/EEG_Feature_Label/test_image_names6.pth')
+        torch.save(test_seqs, 'data/EEG_Feature_Label/test_seqs6.pth')
 
 
 if __name__ == '__main__':

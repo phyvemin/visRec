@@ -13,7 +13,7 @@ import argparse
 # python IS.py --input_image_dir ./input_images
 
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument('--input_image_dir', type=str, default='picture-gene')
+parser.add_argument('--input_image_dir', type=str, default='picture-gene-all')
 parser.add_argument('--batch_size', type=int, default=32)
 parser.add_argument('--device', type=str, choices=["cuda:0", "cpu"], default="cuda:0")
 args = parser.parse_args()

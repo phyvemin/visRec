@@ -11,13 +11,13 @@ folder8 = "data/image_text"
 folder9 = "data/image_text_CLIP"
 folder10 = "data/imagelabel_text_CLIP"
 
-os.makedirs(folder1)
-os.makedirs(folder2)
-os.makedirs(folder3)
-os.makedirs(folder4)
+# os.makedirs(folder1)
+# os.makedirs(folder2)
+# os.makedirs(folder3)
+# os.makedirs(folder4)
 os.makedirs(folder5)
 os.makedirs(folder6)
-os.makedirs(folder7)
+# os.makedirs(folder7)
 os.makedirs(folder8)
 os.makedirs(folder9)
 os.makedirs(folder10)

@@ -11,12 +11,12 @@ import pandas as pd
 parser = argparse.ArgumentParser(description="Template")
 ### BLOCK DESIGN ###
 #Splits
-parser.add_argument('-sp', '--splits-path', default=r"data\EEG\block_splits_by_image_all.pth", help="splits path") #subjects('all' ←---→ 'single')
+parser.add_argument('-sp', '--splits-path', default=os.path.join('data', 'EEG', 'block_splits_by_image_all_new.pth'), help="splits path")
 #parser.add_argument('-sp', '--splits-path', default=r"data\EEG\block_splits_by_image_single.pth", help="splits path") #subjects('all' ←---→ 'single')
 ### BLOCK DESIGN ###
 parser.add_argument('-sn', '--split-num', default=0, type=int, help="split number") #leave this always to zero.
 #Subject selecting
-parser.add_argument('-sub','--subject', default=0 , type=int, help="choose a subject from 1 to 6, default is 0 (all subjects)")
+parser.add_argument('-sub','--subject', default = 0, type=int, help="choose a subject from 1 to 6, default is 0 (all subjects)")
 #Time options: select from 20 to 460 samples from EEG data
 parser.add_argument('-tl', '--time_low', default=20, type=float, help="lowest time value")
 parser.add_argument('-th', '--time_high', default=460,  type=float, help="highest time value")
@@ -39,11 +39,11 @@ class EEGDataset:
     def __init__(self, eeg_signals_path):
         # Load EEG signals
         loaded = torch.load(eeg_signals_path)
-        if opt.subject != 0:
-            self.data = [loaded['dataset'][i] for i in range(len(loaded['dataset'])) if
-                         loaded['dataset'][i]['subject'] == opt.subject]
-        else:
-            self.data = loaded['dataset']
+        # if opt.subject != 0:
+        #     self.data = [loaded['dataset'][i] for i in range(len(loaded['dataset'])) if
+        #                  loaded['dataset'][i]['subject'] == opt.subject]
+        # else:
+        self.data = loaded['dataset']
         self.labels = loaded["labels"]
         self.images = loaded["images"]
 
@@ -75,14 +75,14 @@ class EEGDataset:
 
 # Splitter class
 class Splitter:
-    def __init__(self, dataset, split_path, split_num=0, split_name="train"):
+    def __init__(self, dataset, split_path, subject=0, split_name="train"):
         # Set EEG dataset
         self.dataset = dataset
         # Load split
         loaded = torch.load(split_path)
-        self.split_idx = loaded["splits"][split_num][split_name]
+        self.split_idx = loaded["splits"][subject][split_name]
         # Filter data
-        self.split_idx = [i for i in self.split_idx if 450 <= self.dataset.data[i]["eeg"].size(1) <= 600]
+        # self.split_idx = [i for i in self.split_idx if 450 <= self.dataset.data[i]["eeg"].size(1) <= 600]
         # Compute size
         self.size = len(self.split_idx)
 
@@ -102,9 +102,9 @@ def load_EEG(Path='data/EEG/'):
     clip_moreinf_path='data/image_text_CLIP/'
     dataset = EEGDataset(Path+'eeg_5_95_std.pth')
     # # Create loaders
-    train_dataset = Splitter(dataset, split_path=opt.splits_path, split_num=opt.split_num, split_name="train")
-    val_dataset = Splitter(dataset, split_path=opt.splits_path, split_num=opt.split_num, split_name="val")
-    test_dataset = Splitter(dataset, split_path=opt.splits_path, split_num=opt.split_num, split_name="test")
+    train_dataset = Splitter(dataset, split_path=opt.splits_path, subject=opt.subject, split_name="train")
+    val_dataset = Splitter(dataset, split_path=opt.splits_path, subject=opt.subject, split_name="val")
+    test_dataset = Splitter(dataset, split_path=opt.splits_path, subject=opt.subject, split_name="test")
 
     train_eeg_list = []
     train_label_list = []
@@ -211,9 +211,9 @@ def load_EEG_with_img_name(Path='data/EEG/'):
     clip_path = 'data/imagelabel_text_CLIP/'
     dataset = EEGDataset(Path + 'eeg_5_95_std.pth')
     # # Create loaders
-    train_dataset = Splitter(dataset, split_path=opt.splits_path, split_num=opt.split_num, split_name="train")
-    val_dataset = Splitter(dataset, split_path=opt.splits_path, split_num=opt.split_num, split_name="val")
-    test_dataset = Splitter(dataset, split_path=opt.splits_path, split_num=opt.split_num, split_name="test")
+    train_dataset = Splitter(dataset, split_path=opt.splits_path, subject=opt.subject, split_name="train")
+    val_dataset = Splitter(dataset, split_path=opt.splits_path, subject=opt.subject, split_name="val")
+    test_dataset = Splitter(dataset, split_path=opt.splits_path, subject=opt.subject, split_name="test")
 
     train_eeg_list = []
     train_label_list = []
